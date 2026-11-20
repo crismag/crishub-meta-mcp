@@ -21,8 +21,41 @@ export type FetchLike = (
 ) => Promise<{
   status: number;
   headers: { get(name: string): string | null };
+  /** Streaming body (WHATWG). When present it is read incrementally so the size cap bounds memory. */
+  body?: {
+    getReader(): {
+      read(): Promise<{ done: boolean; value?: Uint8Array }>;
+      cancel(reason?: unknown): Promise<void>;
+    };
+  } | null;
   text(): Promise<string>;
 }>;
+
+class BodyTooLargeError extends Error {}
+
+/** Read a response body, aborting as soon as more than `max` decoded bytes have arrived. */
+async function readBodyCapped(res: Awaited<ReturnType<FetchLike>>, max: number): Promise<string> {
+  const reader = res.body?.getReader();
+  if (!reader) {
+    const text = await res.text();
+    if (Buffer.byteLength(text) > max) throw new BodyTooLargeError();
+    return text;
+  }
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    if (!value) continue;
+    total += value.byteLength;
+    if (total > max) {
+      await reader.cancel().catch(() => {});
+      throw new BodyTooLargeError();
+    }
+    chunks.push(value);
+  }
+  return Buffer.concat(chunks).toString('utf8');
+}
 
 export interface GraphClientOptions {
   version: GraphVersion;
@@ -381,12 +414,27 @@ export class GraphClient {
         { retryable: false },
       );
     }
-    const text = await res.text();
-    if (Buffer.byteLength(text) > this.#opts.maxResponseBytes) {
+    let text: string;
+    try {
+      // Body consumption is inside the error boundary: a timeout or dropped
+      // connection mid-body is a transient upstream failure and is retried.
+      text = await readBodyCapped(res, this.#opts.maxResponseBytes);
+    } catch (cause) {
+      if (cause instanceof BodyTooLargeError) {
+        throw new MetaToolError(
+          ErrorCode.UPSTREAM_UNAVAILABLE,
+          'Meta API response exceeded size limit.',
+          { retryable: false },
+        );
+      }
+      const timeout =
+        cause instanceof Error && (cause.name === 'TimeoutError' || cause.name === 'AbortError');
       throw new MetaToolError(
         ErrorCode.UPSTREAM_UNAVAILABLE,
-        'Meta API response exceeded size limit.',
-        { retryable: false },
+        timeout
+          ? 'Meta API response timed out.'
+          : 'Connection lost while reading Meta API response.',
+        { retryable: true },
       );
     }
     let body: unknown;

@@ -264,6 +264,114 @@ describe('GraphClient responses', () => {
   });
 });
 
+describe('GraphClient body reading', () => {
+  const streamOf = (chunks: Uint8Array[], failAt?: number) => {
+    let i = 0;
+    let cancelled = false;
+    return {
+      get cancelled() {
+        return cancelled;
+      },
+      body: {
+        getReader: () => ({
+          read: async () => {
+            if (failAt !== undefined && i === failAt)
+              throw Object.assign(new Error('reset'), { name: 'TypeError' });
+            return i < chunks.length ? { done: false, value: chunks[i++] } : { done: true };
+          },
+          cancel: async () => {
+            cancelled = true;
+          },
+        }),
+      },
+    };
+  };
+
+  it('stops reading a chunked body as soon as it exceeds the cap', async () => {
+    const chunk = new Uint8Array(400).fill(32);
+    const stream = streamOf([chunk, chunk, chunk, chunk, chunk]);
+    let textCalled = false;
+    const fn: FetchLike = async () => ({
+      status: 200,
+      headers: { get: () => null }, // no content-length
+      body: stream.body,
+      text: async () => {
+        textCalled = true;
+        return '';
+      },
+    });
+    await expect(
+      client(fn, { maxResponseBytes: 1000 }).c.get('test.get', { pathParams: { page_id: '1' } }),
+    ).rejects.toMatchObject({
+      code: ErrorCode.UPSTREAM_UNAVAILABLE,
+      retryable: false,
+      message: expect.stringContaining('size limit'),
+    });
+    expect(stream.cancelled).toBe(true);
+    expect(textCalled).toBe(false);
+  });
+
+  it('decodes a streamed body', async () => {
+    const bytes = new TextEncoder().encode(JSON.stringify({ id: '1', name: 'é' }));
+    const fn: FetchLike = async () => ({
+      status: 200,
+      headers: { get: () => null },
+      body: streamOf([bytes.slice(0, 5), bytes.slice(5)]).body,
+      text: async () => '',
+    });
+    await expect(client(fn).c.get('test.get', { pathParams: { page_id: '1' } })).resolves.toEqual({
+      id: '1',
+      name: 'é',
+    });
+  });
+
+  it('retries when the connection drops while reading the body', async () => {
+    let calls = 0;
+    const fn: FetchLike = async () => {
+      calls++;
+      if (calls === 1) {
+        return {
+          status: 200,
+          headers: { get: () => null },
+          body: streamOf([new Uint8Array([123])], 1).body,
+          text: async () => '',
+        };
+      }
+      return {
+        status: 200,
+        headers: { get: () => null },
+        text: async () => JSON.stringify({ id: '1', name: 'x' }),
+      };
+    };
+    await expect(client(fn).c.get('test.get', { pathParams: { page_id: '1' } })).resolves.toEqual({
+      id: '1',
+      name: 'x',
+    });
+    expect(calls).toBe(2);
+  });
+
+  it('maps a body-read timeout to a retryable upstream error, not INTERNAL_ERROR', async () => {
+    let calls = 0;
+    const fn: FetchLike = async () => {
+      calls++;
+      return {
+        status: 200,
+        headers: { get: () => null },
+        text: async () => {
+          throw Object.assign(new Error('t'), { name: 'TimeoutError' });
+        },
+      };
+    };
+    await expect(
+      client(fn, { maxRetries: 1 }).c.get('test.get', { pathParams: { page_id: '1' } }),
+    ).rejects.toMatchObject({
+      code: ErrorCode.UPSTREAM_UNAVAILABLE,
+      retryable: true,
+    });
+    expect(calls).toBe(2);
+  });
+});
+
 describe('GraphClient retries', () => {
   it('retries transient failures with bounded backoff', async () => {
     const { fn, seen } = fakeFetch([

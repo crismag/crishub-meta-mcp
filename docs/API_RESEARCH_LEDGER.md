@@ -60,7 +60,7 @@ Note: some reference pages show `v27.0` in examples, but the changelog does not 
   Budgets are numeric strings, returned raw.
 - **Insights**: levels ad|adset|campaign|account; `time_range` overrides `date_preset`; `time_increment` all_days
   (default)|monthly|1–90; max 37 months history (error 3018); invalid cursor error 2642; `lifetime` preset removed
-  in v10.0. Toolkit limits: allowlisted fields, presets excluding `maximum`, ranges ≤ 93 days, ≤ 500 rows,
+  in v10.0. Toolkit limits: account and campaign levels only (adset/ad withheld until `adset_id`/`ad_id` fields are verified; campaign rows always carry `campaign_id`/`campaign_name`), allowlisted fields, presets excluding `maximum`, ranges ≤ 93 days, ≤ 500 rows,
   synchronous only (async `report_run_id` workflow is out of scope for Sprint 1). reach, frequency and spend are
   estimates.
 - **Lead retrieval** (Sprint 2, not implemented): [retrieving guide](https://developers.facebook.com/documentation/ads-commerce/marketing-api/guides/lead-ads/retrieving):

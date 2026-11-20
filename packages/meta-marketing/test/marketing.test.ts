@@ -116,6 +116,22 @@ describe('meta_insights_query', () => {
     });
   });
 
+  it('always identifies campaigns in campaign-level rows', async () => {
+    const h = harness();
+    const res = await h.invoke('meta_insights_query', {
+      ad_account_id: ACCT,
+      level: 'campaign',
+      fields: ['spend'],
+      date_preset: 'last_7d',
+    });
+    expect(res.ok).toBe(true);
+    if (!res.ok) return;
+    const rows = (res.data as { rows: Record<string, string>[] }).rows;
+    expect(rows).toHaveLength(4);
+    expect(new Set(rows.map((r) => r.campaign_id)).size).toBe(4);
+    expect(h.mock.calls[0]!.params.fields).toBe('spend,campaign_id,campaign_name');
+  });
+
   it('is deterministic', async () => {
     const input = { ad_account_id: ACCT, level: 'campaign', date_preset: 'last_30d' };
     expect(await harness().invoke('meta_insights_query', input)).toEqual(
@@ -156,6 +172,8 @@ describe('meta_insights_query', () => {
     ['unbounded preset', { date_preset: 'maximum' }],
     ['row cap', { max_rows: MAX_INSIGHTS_ROWS + 1 }],
     ['breakdowns not allowed', { breakdowns: ['age'] }],
+    ['adset level (ids unverified)', { level: 'adset' }],
+    ['ad level (ids unverified)', { level: 'ad' }],
   ])('rejects %s', async (_l, extra) => {
     const h = harness();
     expect(await h.invoke('meta_insights_query', { ad_account_id: ACCT, ...extra })).toMatchObject({

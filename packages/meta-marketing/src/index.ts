@@ -181,7 +181,9 @@ const DATE_PRESETS = [
   'this_month',
   'last_month',
 ] as const;
-const LEVELS = ['account', 'campaign', 'adset', 'ad'] as const;
+// adset/ad levels are withheld until adset_id/ad_id insight fields are documentation-verified;
+// without them rows from different ad sets or ads could not be told apart.
+const LEVELS = ['account', 'campaign'] as const;
 const TIME_INCREMENTS = ['1', '7', 'monthly', 'all_days'] as const;
 export const MAX_INSIGHTS_RANGE_DAYS = 93;
 export const MAX_INSIGHTS_ROWS = 500;
@@ -460,7 +462,10 @@ const insightsQuery = defineTool({
     }
     if (input.time_range) validateRange(input.time_range.since, input.time_range.until, new Date());
     const level = input.level ?? 'account';
-    const fields = input.fields ? [...new Set(input.fields)] : ['impressions', 'spend'];
+    const requested: string[] = input.fields ? [...input.fields] : ['impressions', 'spend'];
+    // Always identify the entity a row belongs to at campaign level.
+    if (level === 'campaign') requested.push('campaign_id', 'campaign_name');
+    const fields = [...new Set(requested)];
     const maxRows = input.max_rows ?? 100;
     const res = await graph.list<z.infer<typeof insightRowSchema>>(
       'marketing.insights.query',
