@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "crishub-meta": {
+      "command": "node",
+      "args": ["/ABSOLUTE/PATH/TO/crishub-meta-mcp/packages/mcp-server/dist/bin.js"],
+      "env": {
+        "META_MODE": "mock",
+        "META_LOG_LEVEL": "warn"
+      }
+    }
+  }
+}
