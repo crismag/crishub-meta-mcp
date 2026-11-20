@@ -1,0 +1,9 @@
+{
+  "files": [],
+  "references": [
+    { "path": "packages/core" },
+    { "path": "packages/meta-facebook" },
+    { "path": "packages/meta-marketing" },
+    { "path": "packages/mcp-server" }
+  ]
+}

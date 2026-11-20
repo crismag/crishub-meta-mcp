@@ -1,0 +1,12 @@
+# Extends the default gitleaks rules. Only synthetic test credentials are allowlisted:
+# they are short, clearly fake, and live in test files or the mock fixtures module.
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Synthetic test and mock credentials"
+regexes = ['''DONOTUSE''']
+paths = [
+  '''packages/[^/]+/test/.*\.test\.ts$''',
+  '''packages/core/src/mock/fixtures\.ts$''',
+]
